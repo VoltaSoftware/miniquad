@@ -11,6 +11,7 @@ use std::{
 };
 
 use crate::{
+    error,
     event::EventHandler,
     native::{NativeDisplayData, Request},
 };
@@ -29,16 +30,26 @@ thread_local! {
     static EVENT_HANDLER: RefCell<Option<Box<dyn EventHandler>>> = RefCell::new(None);
     static REQUESTS: RefCell<Option<Receiver<Request>>> = const { RefCell::new(None) };
 }
-fn tl_event_handler<T, F: FnOnce(&mut dyn EventHandler) -> T>(f: F) -> T {
-    EVENT_HANDLER.with(|globals| {
-        let mut globals = globals.borrow_mut();
-        let globals: &mut Box<dyn EventHandler> = globals.as_mut().unwrap();
-        f(&mut **globals)
+fn tl_event_handler<T, F: FnOnce(&mut dyn EventHandler) -> T>(f: F) {
+    EVENT_HANDLER.with(|globals| match globals.try_borrow_mut() {
+        Ok(mut globals) => {
+            let globals: &mut Box<dyn EventHandler> = globals.as_mut().unwrap();
+            f(&mut **globals);
+        }
+        Err(err) => {
+            unsafe {
+                if !PRINTED_BORROW_ERROR {
+                    error!("Borrow event handler failed {:?}", err);
+                    PRINTED_BORROW_ERROR = true;
+                }
+            }
+        }
     })
 }
 
 static mut CURSOR_ICON: crate::CursorIcon = crate::CursorIcon::Default;
 static mut CURSOR_SHOW: bool = true;
+static mut PRINTED_BORROW_ERROR: bool = false;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
