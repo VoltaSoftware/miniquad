@@ -356,6 +356,20 @@ pub fn define_cocoa_window_delegate() -> *const Class {
         }
     }
 
+    extern "C" fn window_did_become_key(this: &Object, _: Sel, _: ObjcId) {
+        let payload = get_window_payload(this);
+        if let Some(event_handler) = payload.context() {
+            event_handler.window_focus_gained();
+        }
+    }
+
+    extern "C" fn window_did_resign_key(this: &Object, _: Sel, _: ObjcId) {
+        let payload = get_window_payload(this);
+        if let Some(event_handler) = payload.context() {
+            event_handler.window_focus_lost();
+        }
+    }
+
     let superclass = class!(NSObject);
     let mut decl = ClassDecl::new("RenderWindowDelegate", superclass).unwrap();
 
@@ -389,6 +403,14 @@ pub fn define_cocoa_window_delegate() -> *const Class {
         decl.add_method(
             sel!(windowDidChangeOcclusionState:),
             window_did_change_occlusion_state as extern "C" fn(&Object, Sel, ObjcId),
+        );
+        decl.add_method(
+            sel!(windowDidBecomeKey:),
+            window_did_become_key as extern "C" fn(&Object, Sel, ObjcId),
+        );
+        decl.add_method(
+            sel!(windowDidResignKey:),
+            window_did_resign_key as extern "C" fn(&Object, Sel, ObjcId),
         );
     }
     // Store internal state as user data
