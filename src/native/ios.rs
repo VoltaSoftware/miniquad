@@ -187,10 +187,18 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
             Message::Pause => {
                 let mut state = payload.state.lock().unwrap();
                 state.paused = true;
+
+                if let Some(ref mut event_handler) = payload.event_handler {
+                    event_handler.window_focus_lost();
+                }
             }
             Message::Resume => {
                 let mut state = payload.state.lock().unwrap();
                 state.paused = false;
+
+                if let Some(ref mut event_handler) = payload.event_handler {
+                    event_handler.window_focus_gained();
+                }
             }
             Message::Destroy => {
                 let mut state = payload.state.lock().unwrap();
