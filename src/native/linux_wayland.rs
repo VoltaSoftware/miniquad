@@ -1269,8 +1269,14 @@ where
                     WaylandEvent::Resize(width, height) => {
                         event_handler.resize_event(width, height)
                     }
-                    WaylandEvent::WindowMinimized => event_handler.window_minimized_event(),
-                    WaylandEvent::WindowRestored => event_handler.window_restored_event(),
+                    WaylandEvent::WindowMinimized => {
+                        event_handler.window_minimized_event();
+                        event_handler.window_focus_lost();
+                    }
+                    WaylandEvent::WindowRestored => {
+                        event_handler.window_restored_event();
+                        event_handler.window_focus_gained();
+                    }
                     WaylandEvent::FilesDropped(filenames) => {
                         let mut d = crate::native_display().try_lock().unwrap();
                         d.dropped_files = Default::default();

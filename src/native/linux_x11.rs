@@ -132,9 +132,11 @@ impl X11Display {
             }
             9 => {
                 event_handler.window_restored_event();
+                event_handler.window_focus_gained();
             }
             10 => {
                 event_handler.window_minimized_event();
+                event_handler.window_focus_lost();
             }
             22 => {
                 let mut d = crate::native_display().try_lock().unwrap();

@@ -239,7 +239,10 @@ impl MainThreadState {
                 }
                 self.event_handler.key_up_event(keycode, self.keymods);
             }
-            Message::Pause => self.event_handler.window_minimized_event(),
+            Message::Pause => {
+                self.event_handler.window_minimized_event();
+                self.event_handler.window_focus_lost();
+            }
             Message::Resume => {
                 if self.fullscreen {
                     unsafe {
@@ -248,7 +251,8 @@ impl MainThreadState {
                     }
                 }
 
-                self.event_handler.window_restored_event()
+                self.event_handler.window_restored_event();
+                self.event_handler.window_focus_gained();
             }
             Message::Destroy => {
                 self.quit = true;
