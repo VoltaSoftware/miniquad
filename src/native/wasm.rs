@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    error,
+    debug, error,
     event::EventHandler,
     native::{NativeDisplayData, Request},
 };
@@ -36,14 +36,12 @@ fn tl_event_handler<T, F: FnOnce(&mut dyn EventHandler) -> T>(f: F) {
             let globals: &mut Box<dyn EventHandler> = globals.as_mut().unwrap();
             f(&mut **globals);
         }
-        Err(err) => {
-            unsafe {
-                if !PRINTED_BORROW_ERROR {
-                    error!("Borrow event handler failed {:?}", err);
-                    PRINTED_BORROW_ERROR = true;
-                }
+        Err(err) => unsafe {
+            if !PRINTED_BORROW_ERROR {
+                error!("Borrow event handler failed {:?}", err);
+                PRINTED_BORROW_ERROR = true;
             }
-        }
+        },
     })
 }
 
@@ -345,8 +343,10 @@ pub extern "C" fn focus(has_focus: bool) {
     tl_event_handler(|event_handler| {
         if has_focus {
             event_handler.window_restored_event();
+            event_handler.window_focus_gained();
         } else {
             event_handler.window_minimized_event();
+            event_handler.window_focus_lost();
         }
     });
 }

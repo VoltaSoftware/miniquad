@@ -535,6 +535,14 @@ unsafe extern "system" fn win32_wndproc(
                 }
             }
         }
+        WM_ACTIVATE => {
+            let activate_state = LOWORD(wparam as _);
+            if activate_state == WA_INACTIVE {
+                event_handler.window_focus_lost();
+            } else {
+                event_handler.window_focus_gained();
+            }
+        }
         _ => {}
     }
 

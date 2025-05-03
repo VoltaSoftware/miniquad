@@ -200,6 +200,14 @@ pub trait EventHandler {
         }
     }
 
+    /// Window has lost focus and is not the active window
+    /// Right now is only implemented on windows
+    fn window_focus_lost(&mut self) {}
+
+    /// Window has gained focus and is currently the active window
+    /// Right now is only implemented on windows
+    fn window_focus_gained(&mut self) {}
+
     /// Represents raw hardware mouse motion event
     /// Note that these events are delivered regardless of input focus and not in pixels, but in
     /// hardware units instead. And those units may be different from pixels depending on the target platform
