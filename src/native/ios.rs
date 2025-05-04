@@ -189,7 +189,7 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
                 state.paused = true;
 
                 if let Some(ref mut event_handler) = payload.event_handler {
-                    event_handler.window_focus_lost();
+                    event_handler.window_minimized_event();
                 }
             }
             Message::Resume => {
@@ -197,7 +197,7 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
                 state.paused = false;
 
                 if let Some(ref mut event_handler) = payload.event_handler {
-                    event_handler.window_focus_gained();
+                    event_handler.window_restored_event();
                 }
             }
             Message::Destroy => {

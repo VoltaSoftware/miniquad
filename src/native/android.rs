@@ -241,7 +241,6 @@ impl MainThreadState {
             }
             Message::Pause => {
                 self.event_handler.window_minimized_event();
-                self.event_handler.window_focus_lost();
             }
             Message::Resume => {
                 if self.fullscreen {
@@ -252,7 +251,6 @@ impl MainThreadState {
                 }
 
                 self.event_handler.window_restored_event();
-                self.event_handler.window_focus_gained();
             }
             Message::Destroy => {
                 self.quit = true;

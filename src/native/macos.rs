@@ -359,14 +359,14 @@ pub fn define_cocoa_window_delegate() -> *const Class {
     extern "C" fn window_did_become_key(this: &Object, _: Sel, _: ObjcId) {
         let payload = get_window_payload(this);
         if let Some(event_handler) = payload.context() {
-            event_handler.window_focus_gained();
+            event_handler.window_restored_event();
         }
     }
 
     extern "C" fn window_did_resign_key(this: &Object, _: Sel, _: ObjcId) {
         let payload = get_window_payload(this);
         if let Some(event_handler) = payload.context() {
-            event_handler.window_focus_lost();
+            event_handler.window_minimized_event();
         }
     }
 

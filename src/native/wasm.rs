@@ -343,10 +343,8 @@ pub extern "C" fn focus(has_focus: bool) {
     tl_event_handler(|event_handler| {
         if has_focus {
             event_handler.window_restored_event();
-            event_handler.window_focus_gained();
         } else {
             event_handler.window_minimized_event();
-            event_handler.window_focus_lost();
         }
     });
 }
