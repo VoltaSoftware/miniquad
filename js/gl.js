@@ -11,6 +11,7 @@
 const version = 2;
 
 const canvas = document.querySelector("#glcanvas");
+var ghost_input = undefined;
 var gl;
 
 var clipboard = null;
@@ -24,6 +25,36 @@ var high_dpi = false;
 // if false, requestAnimationFrame will be called at the end of each frame
 var blocking_event_loop = false;
 
+function focusInput(target) {
+    // create invisible dummy input to receive the focus first
+    const fakeInput = document.createElement('input')
+    fakeInput.setAttribute('type', 'text')
+    fakeInput.setAttribute('aria-hidden', 'true')
+    fakeInput.setAttribute('readonly', 'true')
+    fakeInput.style.position = 'absolute'
+    fakeInput.style.opacity = "0"
+    fakeInput.style.height = "0"
+    fakeInput.style.fontSize = '16px' // disable auto zoom
+
+    // you may need to append to another element depending on the browser's auto
+    // zoom/scroll behavior
+    document.body.prepend(fakeInput)
+
+    // focus so that subsequent async focus will work
+    fakeInput.focus()
+
+    setTimeout(() => {
+
+        // now we can focus on the target input
+        target?.current?.focus()
+
+        // cleanup
+        fakeInput.remove()
+
+    }, 500)
+
+}
+
 function init_webgl(version) {
     if (version == 1) {
         gl = canvas.getContext("webgl");
@@ -32,12 +63,19 @@ function init_webgl(version) {
             // Extension available in WebGL 1 from Firefox 25 and WebKit 536.28/desktop Safari 6.0.3 onwards. Core feature in WebGL 2.
             var ext = ctx.getExtension('OES_vertex_array_object');
             if (ext) {
-                ctx['createVertexArray'] = function () { return ext['createVertexArrayOES'](); };
-                ctx['deleteVertexArray'] = function (vao) { ext['deleteVertexArrayOES'](vao); };
-                ctx['bindVertexArray'] = function (vao) { ext['bindVertexArrayOES'](vao); };
-                ctx['isVertexArray'] = function (vao) { return ext['isVertexArrayOES'](vao); };
-            }
-            else {
+                ctx['createVertexArray'] = function () {
+                    return ext['createVertexArrayOES']();
+                };
+                ctx['deleteVertexArray'] = function (vao) {
+                    ext['deleteVertexArrayOES'](vao);
+                };
+                ctx['bindVertexArray'] = function (vao) {
+                    ext['bindVertexArrayOES'](vao);
+                };
+                ctx['isVertexArray'] = function (vao) {
+                    return ext['isVertexArrayOES'](vao);
+                };
+            } else {
                 alert("Unable to get OES_vertex_array_object extension");
             }
         }
@@ -47,27 +85,45 @@ function init_webgl(version) {
             // Extension available in WebGL 1 from Firefox 26 and Google Chrome 30 onwards. Core feature in WebGL 2.
             var ext = ctx.getExtension('ANGLE_instanced_arrays');
             if (ext) {
-                ctx['vertexAttribDivisor'] = function (index, divisor) { ext['vertexAttribDivisorANGLE'](index, divisor); };
-                ctx['drawArraysInstanced'] = function (mode, first, count, primcount) { ext['drawArraysInstancedANGLE'](mode, first, count, primcount); };
-                ctx['drawElementsInstanced'] = function (mode, count, type, indices, primcount) { ext['drawElementsInstancedANGLE'](mode, count, type, indices, primcount); };
+                ctx['vertexAttribDivisor'] = function (index, divisor) {
+                    ext['vertexAttribDivisorANGLE'](index, divisor);
+                };
+                ctx['drawArraysInstanced'] = function (mode, first, count, primcount) {
+                    ext['drawArraysInstancedANGLE'](mode, first, count, primcount);
+                };
+                ctx['drawElementsInstanced'] = function (mode, count, type, indices, primcount) {
+                    ext['drawElementsInstancedANGLE'](mode, count, type, indices, primcount);
+                };
             }
         }
 
         function acquireDisjointTimerQueryExtension(ctx) {
             var ext = ctx.getExtension('EXT_disjoint_timer_query');
             if (ext) {
-                ctx['createQuery'] = function () { return ext['createQueryEXT'](); };
-                ctx['beginQuery'] = function (target, query) { return ext['beginQueryEXT'](target, query); };
-                ctx['endQuery'] = function (target) { return ext['endQueryEXT'](target); };
-                ctx['deleteQuery'] = function (query) { ext['deleteQueryEXT'](query); };
-                ctx['getQueryObject'] = function (query, pname) { return ext['getQueryObjectEXT'](query, pname); };
+                ctx['createQuery'] = function () {
+                    return ext['createQueryEXT']();
+                };
+                ctx['beginQuery'] = function (target, query) {
+                    return ext['beginQueryEXT'](target, query);
+                };
+                ctx['endQuery'] = function (target) {
+                    return ext['endQueryEXT'](target);
+                };
+                ctx['deleteQuery'] = function (query) {
+                    ext['deleteQueryEXT'](query);
+                };
+                ctx['getQueryObject'] = function (query, pname) {
+                    return ext['getQueryObjectEXT'](query, pname);
+                };
             }
         }
 
         function acquireDrawBuffers(ctx) {
             var ext = ctx.getExtension('WEBGL_draw_buffers');
             if (ext) {
-                ctx['drawBuffers'] = function (bufs) { return ext['drawBuffersWEBGL'](bufs); };
+                ctx['drawBuffers'] = function (bufs) {
+                    return ext['drawBuffersWEBGL'](bufs);
+                };
             }
         }
 
@@ -93,19 +149,60 @@ function init_webgl(version) {
     if (gl === null) {
         alert("Unable to initialize WebGL. Your browser or machine may not support it.");
     }
+
+    // Search for ghost_input to trigger keyboard to show on mobile devices when focused
+    ghost_input = document.querySelector("#ghost_input");
+    if (!ghost_input) {
+        // If no ghost input found, inject a fake hidden one
+        ghost_input = document.createElement("input");
+        ghost_input.id = "ghost_input";
+        ghost_input.style.position = "absolute";
+        ghost_input.style.opacity = "0";
+        ghost_input.style.pointerEvents = "none"; // Prevent it from capturing mouse events
+        ghost_input.style.width = "1px";
+        ghost_input.style.height = "1px";
+        ghost_input.style.top = '0px';
+        ghost_input.style.right = '0px'
+        ghost_input.style.zIndex = "-1"; // Ensure it doesn't interfere with layout
+        document.body.appendChild(ghost_input);
+    }
+
+    // Forward all ghost_input key events to the canvas
+    ghost_input.addEventListener("keydown", function (event) {
+        console.error("keydown event: ", event);
+        canvas_onkeydown(event);
+    });
+
+    ghost_input.addEventListener("keyup", function (event) {
+        canvas_onkeyup(event);
+    });
+
+    ghost_input.addEventListener("keypress", function (event) {
+        canvas_onkeypress(event);
+    });
+
+    ghost_input.addEventListener("focus", function () {
+        canvas.blur();
+    });
+    ghost_input.addEventListener("blur", function () {
+        canvas.focus();
+    });
+    //
 }
 
 canvas.focus();
 
 canvas.requestPointerLock = canvas.requestPointerLock ||
     canvas.mozRequestPointerLock ||
-    // pointer lock in any form is not supported on iOS safari 
+    // pointer lock in any form is not supported on iOS safari
     // https://developer.mozilla.org/en-US/docs/Web/API/Pointer_Lock_API#browser_compatibility
-    (function () { });
+    (function () {
+    });
 document.exitPointerLock = document.exitPointerLock ||
     document.mozExitPointerLock ||
     // pointer lock in any form is not supported on iOS safari
-    (function () { });
+    (function () {
+    });
 
 function assert(flag, message) {
     if (flag == false) {
@@ -135,9 +232,15 @@ function UTF8ToString(ptr, maxBytesToRead) {
         // If building with TextDecoder, we know exactly at what byte index the string ends, so checking for nulls here would be redundant.
         if (!u0) return str;
 
-        if (!(u0 & 0x80)) { str += String.fromCharCode(u0); continue; }
+        if (!(u0 & 0x80)) {
+            str += String.fromCharCode(u0);
+            continue;
+        }
         var u1 = u8Array[idx++] & 63;
-        if ((u0 & 0xE0) == 0xC0) { str += String.fromCharCode(((u0 & 31) << 6) | u1); continue; }
+        if ((u0 & 0xE0) == 0xC0) {
+            str += String.fromCharCode(((u0 & 31) << 6) | u1);
+            continue;
+        }
         var u2 = u8Array[idx++] & 63;
         if ((u0 & 0xF0) == 0xE0) {
             u0 = ((u0 & 15) << 12) | (u1 << 6) | u2;
@@ -196,6 +299,7 @@ function stringToUTF8(str, heap, outIdx, maxBytesToWrite) {
     }
     return outIdx - startIdx;
 }
+
 var FS = {
     loaded_files: [],
     unique_id: 0
@@ -409,11 +513,19 @@ function _webglGet(name_, p, type) {
     }
 
     switch (type) {
-        case 'EM_FUNC_SIG_PARAM_I64': getArray(p, Int32Array, 1)[0] = ret;
-        case 'EM_FUNC_SIG_PARAM_I': getArray(p, Int32Array, 1)[0] = ret; break;
-        case 'EM_FUNC_SIG_PARAM_F': getArray(p, Float32Array, 1)[0] = ret; break;
-        case 'EM_FUNC_SIG_PARAM_B': getArray(p, Int8Array, 1)[0] = ret ? 1 : 0; break;
-        default: throw 'internal glGet error, bad type: ' + type;
+        case 'EM_FUNC_SIG_PARAM_I64':
+            getArray(p, Int32Array, 1)[0] = ret;
+        case 'EM_FUNC_SIG_PARAM_I':
+            getArray(p, Int32Array, 1)[0] = ret;
+            break;
+        case 'EM_FUNC_SIG_PARAM_F':
+            getArray(p, Float32Array, 1)[0] = ret;
+            break;
+        case 'EM_FUNC_SIG_PARAM_B':
+            getArray(p, Int8Array, 1)[0] = ret ? 1 : 0;
+            break;
+        default:
+            throw 'internal glGet error, bad type: ' + type;
     }
 }
 
@@ -456,132 +568,253 @@ const SAPP_MODIFIER_SUPER = 8;
 
 function into_sapp_mousebutton(btn) {
     switch (btn) {
-        case 0: return 0;
-        case 1: return 2;
-        case 2: return 1;
-        default: return btn;
+        case 0:
+            return 0;
+        case 1:
+            return 2;
+        case 2:
+            return 1;
+        default:
+            return btn;
     }
 }
 
 function into_sapp_keycode(key_code) {
     switch (key_code) {
-        case "Space": return 32;
-        case "Quote": return 222;
-        case "Comma": return 44;
-        case "Minus": return 45;
-        case "Period": return 46;
-        case "Slash": return 189;
-        case "Digit0": return 48;
-        case "Digit1": return 49;
-        case "Digit2": return 50;
-        case "Digit3": return 51;
-        case "Digit4": return 52;
-        case "Digit5": return 53;
-        case "Digit6": return 54;
-        case "Digit7": return 55;
-        case "Digit8": return 56;
-        case "Digit9": return 57;
-        case "Semicolon": return 59;
-        case "Equal": return 61;
-        case "KeyA": return 65;
-        case "KeyB": return 66;
-        case "KeyC": return 67;
-        case "KeyD": return 68;
-        case "KeyE": return 69;
-        case "KeyF": return 70;
-        case "KeyG": return 71;
-        case "KeyH": return 72;
-        case "KeyI": return 73;
-        case "KeyJ": return 74;
-        case "KeyK": return 75;
-        case "KeyL": return 76;
-        case "KeyM": return 77;
-        case "KeyN": return 78;
-        case "KeyO": return 79;
-        case "KeyP": return 80;
-        case "KeyQ": return 81;
-        case "KeyR": return 82;
-        case "KeyS": return 83;
-        case "KeyT": return 84;
-        case "KeyU": return 85;
-        case "KeyV": return 86;
-        case "KeyW": return 87;
-        case "KeyX": return 88;
-        case "KeyY": return 89;
-        case "KeyZ": return 90;
-        case "BracketLeft": return 91;
-        case "Backslash": return 92;
-        case "BracketRight": return 93;
-        case "Backquote": return 96;
-        case "Escape": return 256;
-        case "Enter": return 257;
-        case "Tab": return 258;
-        case "Backspace": return 259;
-        case "Insert": return 260;
-        case "Delete": return 261;
-        case "ArrowRight": return 262;
-        case "ArrowLeft": return 263;
-        case "ArrowDown": return 264;
-        case "ArrowUp": return 265;
-        case "PageUp": return 266;
-        case "PageDown": return 267;
-        case "Home": return 268;
-        case "End": return 269;
-        case "CapsLock": return 280;
-        case "ScrollLock": return 281;
-        case "NumLock": return 282;
-        case "PrintScreen": return 283;
-        case "Pause": return 284;
-        case "F1": return 290;
-        case "F2": return 291;
-        case "F3": return 292;
-        case "F4": return 293;
-        case "F5": return 294;
-        case "F6": return 295;
-        case "F7": return 296;
-        case "F8": return 297;
-        case "F9": return 298;
-        case "F10": return 299;
-        case "F11": return 300;
-        case "F12": return 301;
-        case "F13": return 302;
-        case "F14": return 303;
-        case "F15": return 304;
-        case "F16": return 305;
-        case "F17": return 306;
-        case "F18": return 307;
-        case "F19": return 308;
-        case "F20": return 309;
-        case "F21": return 310;
-        case "F22": return 311;
-        case "F23": return 312;
-        case "F24": return 313;
-        case "Numpad0": return 320;
-        case "Numpad1": return 321;
-        case "Numpad2": return 322;
-        case "Numpad3": return 323;
-        case "Numpad4": return 324;
-        case "Numpad5": return 325;
-        case "Numpad6": return 326;
-        case "Numpad7": return 327;
-        case "Numpad8": return 328;
-        case "Numpad9": return 329;
-        case "NumpadDecimal": return 330;
-        case "NumpadDivide": return 331;
-        case "NumpadMultiply": return 332;
-        case "NumpadSubtract": return 333;
-        case "NumpadAdd": return 334;
-        case "NumpadEnter": return 335;
-        case "NumpadEqual": return 336;
-        case "ShiftLeft": return 340;
-        case "ControlLeft": return 341;
-        case "AltLeft": return 342;
-        case "OSLeft": return 343;
-        case "ShiftRight": return 344;
-        case "ControlRight": return 345;
-        case "AltRight": return 346;
-        case "OSRight": return 347;
-        case "ContextMenu": return 348;
+        case "Space":
+            return 32;
+        case "Quote":
+            return 222;
+        case "Comma":
+            return 44;
+        case "Minus":
+            return 45;
+        case "Period":
+            return 46;
+        case "Slash":
+            return 189;
+        case "Digit0":
+            return 48;
+        case "Digit1":
+            return 49;
+        case "Digit2":
+            return 50;
+        case "Digit3":
+            return 51;
+        case "Digit4":
+            return 52;
+        case "Digit5":
+            return 53;
+        case "Digit6":
+            return 54;
+        case "Digit7":
+            return 55;
+        case "Digit8":
+            return 56;
+        case "Digit9":
+            return 57;
+        case "Semicolon":
+            return 59;
+        case "Equal":
+            return 61;
+        case "KeyA":
+            return 65;
+        case "KeyB":
+            return 66;
+        case "KeyC":
+            return 67;
+        case "KeyD":
+            return 68;
+        case "KeyE":
+            return 69;
+        case "KeyF":
+            return 70;
+        case "KeyG":
+            return 71;
+        case "KeyH":
+            return 72;
+        case "KeyI":
+            return 73;
+        case "KeyJ":
+            return 74;
+        case "KeyK":
+            return 75;
+        case "KeyL":
+            return 76;
+        case "KeyM":
+            return 77;
+        case "KeyN":
+            return 78;
+        case "KeyO":
+            return 79;
+        case "KeyP":
+            return 80;
+        case "KeyQ":
+            return 81;
+        case "KeyR":
+            return 82;
+        case "KeyS":
+            return 83;
+        case "KeyT":
+            return 84;
+        case "KeyU":
+            return 85;
+        case "KeyV":
+            return 86;
+        case "KeyW":
+            return 87;
+        case "KeyX":
+            return 88;
+        case "KeyY":
+            return 89;
+        case "KeyZ":
+            return 90;
+        case "BracketLeft":
+            return 91;
+        case "Backslash":
+            return 92;
+        case "BracketRight":
+            return 93;
+        case "Backquote":
+            return 96;
+        case "Escape":
+            return 256;
+        case "Enter":
+            return 257;
+        case "Tab":
+            return 258;
+        case "Backspace":
+            return 259;
+        case "Insert":
+            return 260;
+        case "Delete":
+            return 261;
+        case "ArrowRight":
+            return 262;
+        case "ArrowLeft":
+            return 263;
+        case "ArrowDown":
+            return 264;
+        case "ArrowUp":
+            return 265;
+        case "PageUp":
+            return 266;
+        case "PageDown":
+            return 267;
+        case "Home":
+            return 268;
+        case "End":
+            return 269;
+        case "CapsLock":
+            return 280;
+        case "ScrollLock":
+            return 281;
+        case "NumLock":
+            return 282;
+        case "PrintScreen":
+            return 283;
+        case "Pause":
+            return 284;
+        case "F1":
+            return 290;
+        case "F2":
+            return 291;
+        case "F3":
+            return 292;
+        case "F4":
+            return 293;
+        case "F5":
+            return 294;
+        case "F6":
+            return 295;
+        case "F7":
+            return 296;
+        case "F8":
+            return 297;
+        case "F9":
+            return 298;
+        case "F10":
+            return 299;
+        case "F11":
+            return 300;
+        case "F12":
+            return 301;
+        case "F13":
+            return 302;
+        case "F14":
+            return 303;
+        case "F15":
+            return 304;
+        case "F16":
+            return 305;
+        case "F17":
+            return 306;
+        case "F18":
+            return 307;
+        case "F19":
+            return 308;
+        case "F20":
+            return 309;
+        case "F21":
+            return 310;
+        case "F22":
+            return 311;
+        case "F23":
+            return 312;
+        case "F24":
+            return 313;
+        case "Numpad0":
+            return 320;
+        case "Numpad1":
+            return 321;
+        case "Numpad2":
+            return 322;
+        case "Numpad3":
+            return 323;
+        case "Numpad4":
+            return 324;
+        case "Numpad5":
+            return 325;
+        case "Numpad6":
+            return 326;
+        case "Numpad7":
+            return 327;
+        case "Numpad8":
+            return 328;
+        case "Numpad9":
+            return 329;
+        case "NumpadDecimal":
+            return 330;
+        case "NumpadDivide":
+            return 331;
+        case "NumpadMultiply":
+            return 332;
+        case "NumpadSubtract":
+            return 333;
+        case "NumpadAdd":
+            return 334;
+        case "NumpadEnter":
+            return 335;
+        case "NumpadEqual":
+            return 336;
+        case "ShiftLeft":
+            return 340;
+        case "ControlLeft":
+            return 341;
+        case "AltLeft":
+            return 342;
+        case "OSLeft":
+            return 343;
+        case "ShiftRight":
+            return 344;
+        case "ControlRight":
+            return 345;
+        case "AltRight":
+            return 346;
+        case "OSRight":
+            return 347;
+        case "ContextMenu":
+            return 348;
     }
 
     console.log("Unsupported keyboard key: ", key_code)
@@ -598,8 +831,7 @@ function dpi_scale() {
 function texture_size(internalFormat, width, height) {
     if (internalFormat == gl.ALPHA) {
         return width * height;
-    }
-    else if (internalFormat == gl.RGB) {
+    } else if (internalFormat == gl.RGB) {
         return width * height * 3;
     } else if (internalFormat == gl.RGBA) {
         return width * height * 4;
@@ -614,7 +846,84 @@ function mouse_relative_position(clientX, clientY) {
     var x = (clientX - targetRect.left) * dpi_scale();
     var y = (clientY - targetRect.top) * dpi_scale();
 
-    return { x, y };
+    return {x, y};
+}
+
+function canvas_onkeydown(event) {
+    var sapp_key_code = into_sapp_keycode(event.code);
+    switch (sapp_key_code) {
+        //  space, arrows - prevent scrolling of the page
+        case 32:
+        case 262:
+        case 263:
+        case 264:
+        case 265:
+        // F1-F10
+        case 290:
+        case 291:
+        case 292:
+        case 293:
+        case 294:
+        case 295:
+        case 296:
+        case 297:
+        case 298:
+        case 299:
+        // backspace is Back on Firefox/Windows
+        case 259:
+        // tab - for UI
+        case 258:
+        // quote and slash are Quick Find on Firefox
+        case 39:
+        case 47:
+            event.preventDefault();
+            break;
+    }
+
+    var modifiers = 0;
+    if (event.ctrlKey) {
+        modifiers |= SAPP_MODIFIER_CTRL;
+    }
+    if (event.shiftKey) {
+        modifiers |= SAPP_MODIFIER_SHIFT;
+    }
+    if (event.altKey) {
+        modifiers |= SAPP_MODIFIER_ALT;
+    }
+    wasm_exports.key_down(sapp_key_code, modifiers, event.repeat);
+    // for "space", "quote", and "slash" preventDefault will prevent
+    // key_press event, so send it here instead
+    if (sapp_key_code == 32 || sapp_key_code == 39 || sapp_key_code == 47) {
+        wasm_exports.key_press(sapp_key_code);
+    }
+}
+
+function canvas_onkeyup(event) {
+    var sapp_key_code = into_sapp_keycode(event.code);
+
+    var modifiers = 0;
+    if (event.ctrlKey) {
+        modifiers |= SAPP_MODIFIER_CTRL;
+    }
+    if (event.shiftKey) {
+        modifiers |= SAPP_MODIFIER_SHIFT;
+    }
+    if (event.altKey) {
+        modifiers |= SAPP_MODIFIER_ALT;
+    }
+
+    wasm_exports.key_up(sapp_key_code, modifiers);
+}
+
+function canvas_onkeypress(event) {
+    var sapp_key_code = into_sapp_keycode(event.code);
+
+    // firefox do not send onkeypress events for ctrl+keys and delete key while chrome do
+    // workaround to make this behavior consistent
+    let chrome_only = sapp_key_code == 261 || event.ctrlKey;
+    if (chrome_only == false) {
+        wasm_exports.key_press(event.charCode);
+    }
 }
 
 var emscripten_shaders_hack = false;
@@ -1051,13 +1360,17 @@ var importObject = {
         },
         glDeleteShader: function (shader) {
             var id = GL.shaders[shader];
-            if (id == null) { return }
+            if (id == null) {
+                return
+            }
             gl.deleteShader(id);
             GL.shaders[shader] = null
         },
         glDeleteProgram: function (program) {
             var id = GL.programs[program];
-            if (id == null) { return }
+            if (id == null) {
+                return
+            }
             gl.deleteProgram(id);
             GL.programs[program] = null
         },
@@ -1150,25 +1463,25 @@ var importObject = {
         glGenerateMipmap: function (index) {
             gl.generateMipmap(index);
         },
-        glRenderbufferStorageMultisample: function(target, samples, internalformat, width, height) {
+        glRenderbufferStorageMultisample: function (target, samples, internalformat, width, height) {
             gl.renderbufferStorageMultisample(target, samples, internalformat, width, height);
         },
-        glFramebufferRenderbuffer: function(target, attachment, renderbuffertarget, renderbuffer) {
+        glFramebufferRenderbuffer: function (target, attachment, renderbuffertarget, renderbuffer) {
             GL.validateGLObjectID(GL.renderbuffers, renderbuffer, 'glFramebufferRenderbuffer', 'renderbuffer');
             gl.framebufferRenderbuffer(target, attachment, renderbuffertarget, GL.renderbuffers[renderbuffer]);
         },
-        glCheckFramebufferStatus: function(target) {
+        glCheckFramebufferStatus: function (target) {
             return gl.checkFramebufferStatus(target);
         },
-        glReadBuffer: function(source) {
+        glReadBuffer: function (source) {
             gl.readBuffer(source)
         },
-        glBlitFramebuffer: function(srcX0, srcY0, srcX1, srcY1,
-                                    dstX0, dstY0, dstX1, dstY1,
-                                    mask, filter) {
+        glBlitFramebuffer: function (srcX0, srcY0, srcX1, srcY1,
+                                     dstX0, dstY0, dstX1, dstY1,
+                                     mask, filter) {
             gl.blitFramebuffer(srcX0, srcY0, srcX1, srcY1,
-                               dstX0, dstY0, dstX1, dstY1,
-                               mask, filter);
+                dstX0, dstY0, dstX1, dstY1,
+                mask, filter);
         },
 
         setup_canvas_size: function (high_dpi) {
@@ -1212,64 +1525,13 @@ var importObject = {
                 wasm_exports.mouse_up(x, y, btn);
             };
             canvas.onkeydown = function (event) {
-                var sapp_key_code = into_sapp_keycode(event.code);
-                switch (sapp_key_code) {
-                    //  space, arrows - prevent scrolling of the page
-                    case 32: case 262: case 263: case 264: case 265:
-                    // F1-F10
-                    case 290: case 291: case 292: case 293: case 294: case 295: case 296: case 297: case 298: case 299:
-                    // backspace is Back on Firefox/Windows
-                    case 259:
-                    // tab - for UI
-                    case 258:
-                    // quote and slash are Quick Find on Firefox
-                    case 39: case 47:
-                        event.preventDefault();
-                        break;
-                }
-
-                var modifiers = 0;
-                if (event.ctrlKey) {
-                    modifiers |= SAPP_MODIFIER_CTRL;
-                }
-                if (event.shiftKey) {
-                    modifiers |= SAPP_MODIFIER_SHIFT;
-                }
-                if (event.altKey) {
-                    modifiers |= SAPP_MODIFIER_ALT;
-                }
-                wasm_exports.key_down(sapp_key_code, modifiers, event.repeat);
-                // for "space", "quote", and "slash" preventDefault will prevent
-                // key_press event, so send it here instead
-                if (sapp_key_code == 32 || sapp_key_code == 39 || sapp_key_code == 47) {
-                    wasm_exports.key_press(sapp_key_code);
-                }
+                canvas_onkeydown(event);
             };
             canvas.onkeyup = function (event) {
-                var sapp_key_code = into_sapp_keycode(event.code);
-
-                var modifiers = 0;
-                if (event.ctrlKey) {
-                    modifiers |= SAPP_MODIFIER_CTRL;
-                }
-                if (event.shiftKey) {
-                    modifiers |= SAPP_MODIFIER_SHIFT;
-                }
-                if (event.altKey) {
-                    modifiers |= SAPP_MODIFIER_ALT;
-                }
-
-                wasm_exports.key_up(sapp_key_code, modifiers);
+                canvas_onkeyup(event);
             };
             canvas.onkeypress = function (event) {
-                var sapp_key_code = into_sapp_keycode(event.code);
-
-                // firefox do not send onkeypress events for ctrl+keys and delete key while chrome do
-                // workaround to make this behavior consistent
-                let chrome_only = sapp_key_code == 261 || event.ctrlKey;
-                if (chrome_only == false) {
-                    wasm_exports.key_press(event.charCode);
-                }
+                canvas_onkeypress(event);
             };
 
             canvas.addEventListener("touchstart", function (event) {
@@ -1432,6 +1694,13 @@ var importObject = {
                 document.exitPointerLock();
             }
         },
+        sapp_showkeyboard: function (show) {
+            if (show) {
+                focusInput(ghost_input);
+            } else {
+                ghost_input.blur();
+            }
+        },
         sapp_set_cursor: function (ptr, len) {
             canvas.style.cursor = UTF8ToString(ptr, len);
         },
@@ -1554,8 +1823,12 @@ function load(wasm_path) {
             })
     } else {
         req
-            .then(function (x) { return x.arrayBuffer(); })
-            .then(function (bytes) { return WebAssembly.compile(bytes); })
+            .then(function (x) {
+                return x.arrayBuffer();
+            })
+            .then(function (bytes) {
+                return WebAssembly.compile(bytes);
+            })
             .then(function (obj) {
                 add_missing_functions_stabs(obj);
                 return WebAssembly.instantiate(obj, importObject);

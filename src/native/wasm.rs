@@ -137,6 +137,8 @@ extern "C" {
     /// "mouse_down"/"key_down" event handler functions.
     pub fn sapp_set_cursor_grab(grab: bool);
 
+    pub fn sapp_showkeyboard(show: bool);
+
     pub fn sapp_set_cursor(cursor: *const u8, len: usize);
 
     pub fn sapp_is_elapsed_timer_supported() -> bool;
@@ -239,6 +241,9 @@ pub extern "C" fn frame() {
                 },
                 Request::SetFullscreen(fullscreen) => unsafe {
                     sapp_set_fullscreen(fullscreen);
+                },
+                Request::ShowKeyboard(show) => unsafe {
+                    sapp_showkeyboard(show);
                 },
                 _ => {}
             }
