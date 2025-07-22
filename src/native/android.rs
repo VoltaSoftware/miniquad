@@ -1,4 +1,5 @@
 use crate::{
+    error,
     event::{EventHandler, KeyCode, KeyMods, TouchPhase},
     native::{
         egl::{self, LibEgl},
@@ -610,7 +611,10 @@ extern "C" fn Java_quad_1native_QuadNative_surfaceOnTouch(
         1 => TouchPhase::Ended,
         2 => TouchPhase::Started,
         3 => TouchPhase::Cancelled,
-        x => panic!("Unsupported touch phase: {}", x),
+        x => {
+            error!("Unsupported touch phase: {}", x);
+            return;
+        }
     };
 
     send_message(Message::Touch {
