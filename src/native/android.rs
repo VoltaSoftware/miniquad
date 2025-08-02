@@ -20,9 +20,13 @@ pub mod ndk_utils;
 #[no_mangle]
 pub unsafe extern "C" fn JNI_OnLoad(
     vm: *mut ndk_sys::JavaVM,
-    _: std::ffi::c_void,
+    res: *mut std::ffi::c_void,
 ) -> ndk_sys::jint {
     VM = vm as *mut _ as _;
+
+    unsafe {
+        ndk_context::initialize_android_context(vm as *mut std::ffi::c_void, res);
+    }
 
     ndk_sys::JNI_VERSION_1_6 as _
 }
