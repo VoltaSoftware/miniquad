@@ -81,10 +81,15 @@ thread_local! {
     static MESSAGES_TX: RefCell<Option<mpsc::Sender<Message>>> = RefCell::new(None);
 }
 
+static MESSAGES_TX: RefCell<Option<mpsc::Sender<Message>>> = RefCell::new(None);
+
 fn send_message(message: Message) {
     MESSAGES_TX.with(|tx| {
         let mut tx = tx.borrow_mut();
-        tx.as_mut().unwrap().send(message).unwrap();
+        tx.as_mut()
+            .expect("Should be able to get mut reference to tx")
+            .send(message)
+            .expect("tx Messages channel should be alive");
     })
 }
 
