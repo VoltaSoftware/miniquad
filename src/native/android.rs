@@ -45,7 +45,7 @@ extern "C" {
 /// This long explanation was to illustrate how we ended up with evets callback
 /// and drawing in the different threads.
 /// Message enum is used to send data from the callbacks to the drawing thread.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum Message {
     SurfaceChanged {
         window: *mut ndk_sys::ANativeWindow,
@@ -85,9 +85,19 @@ fn send_message(message: Message) {
     MESSAGES_TX.with(|tx| {
         let mut tx = tx.borrow_mut();
         tx.as_mut()
-            .expect("Should be able to get mut reference to tx")
-            .send(message)
-            .expect("tx Messages channel should be alive");
+            .unwrap_or_else(|| {
+                panic!(
+                    "Should be able to get mut reference to tx: msg={:?}",
+                    message
+                )
+            })
+            .send(message.clone())
+            .unwrap_or_else(|err| {
+                panic!(
+                    "tx Messages channel should've been alive msg={:?} err={err:?}",
+                    message
+                )
+            });
     })
 }
 
@@ -375,6 +385,24 @@ impl crate::native::Clipboard for AndroidClipboard {
     }
 }
 
+pub unsafe fn console_fatal(msg: *const ::core::ffi::c_char) {
+    ndk_sys::__android_log_write(
+        ndk_sys::android_LogPriority_ANDROID_LOG_FATAL as _,
+        b"SAPP\0".as_ptr() as _,
+        msg,
+    );
+}
+
+fn log_fatal_chunks(s: &str) {
+    // Android truncates long log lines (~4k). Chunk to ~3900 bytes.
+    let bytes = s.as_bytes();
+    for chunk in bytes.chunks(3900) {
+        if let Ok(c) = std::ffi::CString::new(chunk) {
+            unsafe { console_fatal(c.as_ptr()) };
+        }
+    }
+}
+
 pub unsafe fn run<F>(conf: crate::conf::Conf, f: F)
 where
     F: 'static + FnOnce() -> Box<dyn EventHandler>,
@@ -384,10 +412,14 @@ where
         use std::panic;
 
         panic::set_hook(Box::new(|info| {
-            let msg = CString::new(format!("{info}")).unwrap_or_else(|_| {
-                CString::new(format!("MALFORMED ERROR MESSAGE {:?}", info.location())).unwrap()
-            });
-            console_error(msg.as_ptr());
+            // Capture the original Rust backtrace here.
+            let bt = std::backtrace::Backtrace::force_capture();
+            let msg = format!("Rust panic: {info}\n{bt}");
+            log_fatal_chunks(&msg);
+
+            // Crash the whole process so Play Console records a native crash.
+            // This preserves the above logcat output as the "original panic" trace.
+            unsafe { libc::abort() };
         }));
     }
 
