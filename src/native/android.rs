@@ -81,8 +81,6 @@ thread_local! {
     static MESSAGES_TX: RefCell<Option<mpsc::Sender<Message>>> = RefCell::new(None);
 }
 
-static MESSAGES_TX: RefCell<Option<mpsc::Sender<Message>>> = RefCell::new(None);
-
 fn send_message(message: Message) {
     MESSAGES_TX.with(|tx| {
         let mut tx = tx.borrow_mut();
