@@ -483,7 +483,7 @@ where
         );
 
         if (libegl.eglMakeCurrent)(egl_display, surface, surface, egl_context) == 0 {
-            panic!();
+            panic!("Failed to make EGL context current");
         }
 
         let (tx, requests_rx) = std::sync::mpsc::channel();
