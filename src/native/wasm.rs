@@ -3,18 +3,13 @@ pub mod webgl;
 
 mod keycodes;
 
-use std::{
-    cell::RefCell,
-    path::PathBuf,
-    sync::{mpsc::Receiver, Mutex, OnceLock},
-    thread_local,
-};
-
 use crate::{
     debug, error,
     event::EventHandler,
     native::{NativeDisplayData, Request},
 };
+use parking_lot::RwLock;
+use std::{cell::RefCell, path::PathBuf, sync::OnceLock, thread_local};
 
 // fn dropped_file_count(&mut self) -> usize {
 //     self.dropped_files.bytes.len()
@@ -28,7 +23,7 @@ use crate::{
 
 thread_local! {
     static EVENT_HANDLER: RefCell<Option<Box<dyn EventHandler>>> = RefCell::new(None);
-    static REQUESTS: RefCell<Option<Receiver<Request>>> = const { RefCell::new(None) };
+    static REQUESTS: RefCell<Option<crossbeam_channel::Receiver<Request>>> = const { RefCell::new(None) };
 }
 fn tl_event_handler<T, F: FnOnce(&mut dyn EventHandler) -> T>(f: F) {
     EVENT_HANDLER.with(|globals| match globals.try_borrow_mut() {
@@ -87,7 +82,7 @@ where
         setup_canvas_size(conf.high_dpi);
     }
 
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = crossbeam_channel::unbounded();
     REQUESTS.with(|r| *r.borrow_mut() = Some(rx));
     let w = unsafe { canvas_width() as _ };
     let h = unsafe { canvas_height() as _ };
@@ -204,15 +199,11 @@ pub extern "C" fn allocate_vec_u8(len: usize) -> *mut u8 {
     ptr
 }
 
-static CLIPBOARD: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static CLIPBOARD: OnceLock<RwLock<Option<String>>> = OnceLock::new();
 struct Clipboard;
 impl crate::native::Clipboard for Clipboard {
     fn get(&mut self) -> Option<String> {
-        CLIPBOARD
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .unwrap()
-            .clone()
+        CLIPBOARD.get_or_init(|| RwLock::new(None)).read().clone()
     }
 
     fn set(&mut self, data: &str) {
@@ -226,7 +217,7 @@ impl crate::native::Clipboard for Clipboard {
 pub extern "C" fn on_clipboard_paste(msg: *mut u8, len: usize) {
     let msg = unsafe { String::from_raw_parts(msg, len, len) };
 
-    *CLIPBOARD.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(msg);
+    *CLIPBOARD.get_or_init(|| RwLock::new(None)).write() = Some(msg);
 }
 
 #[no_mangle]
@@ -326,7 +317,7 @@ pub extern "C" fn key_up(key: u32, modifiers: u32) {
 #[no_mangle]
 pub extern "C" fn resize(width: i32, height: i32) {
     {
-        let mut d = crate::native_display().lock().unwrap();
+        let mut d = crate::native_display().write();
         d.screen_width = width as _;
         d.screen_height = height as _;
     }
@@ -352,30 +343,4 @@ pub extern "C" fn focus(has_focus: bool) {
             event_handler.window_minimized_event();
         }
     });
-}
-
-#[no_mangle]
-pub extern "C" fn on_files_dropped_start() {
-    let mut d = crate::native_display().lock().unwrap();
-    d.dropped_files = Default::default();
-}
-
-#[no_mangle]
-pub extern "C" fn on_files_dropped_finish() {
-    tl_event_handler(|event_handler| event_handler.files_dropped_event());
-}
-
-#[no_mangle]
-pub extern "C" fn on_file_dropped(
-    path: *mut u8,
-    path_len: usize,
-    bytes: *mut u8,
-    bytes_len: usize,
-) {
-    let mut d = crate::native_display().lock().unwrap();
-    let path = PathBuf::from(unsafe { String::from_raw_parts(path, path_len, path_len) });
-    let bytes = unsafe { Vec::from_raw_parts(bytes, bytes_len, bytes_len) };
-
-    d.dropped_files.paths.push(path);
-    d.dropped_files.bytes.push(bytes);
 }

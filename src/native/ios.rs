@@ -2,6 +2,9 @@
 //! sokol_app's objective C code and Makepad's (<https://github.com/makepad/makepad/blob/live/platform/src/platform/apple>)
 //! platform implementation
 //!
+
+use parking_lot::lock_api::RwLock;
+use parking_lot::RwLock;
 use {
     crate::{
         conf::{self, AppleGfxApi, Conf},
@@ -19,7 +22,7 @@ use {
     std::{
         cell::RefCell,
         os::raw::c_void,
-        sync::{mpsc, Arc, Mutex},
+        sync::Arc,
         thread::{self},
     },
 };
@@ -43,7 +46,7 @@ struct IosDisplay {
     event_handler: Option<Box<dyn EventHandler>>,
     _gles2: bool,
     f: Option<Box<dyn 'static + FnOnce() -> Box<dyn EventHandler>>>,
-    state: Arc<Mutex<MainThreadState>>,
+    state: Arc<RwLock<MainThreadState>>,
 }
 
 impl IosDisplay {
@@ -107,7 +110,7 @@ enum Message {
 unsafe impl Send for Message {}
 
 thread_local! {
-    static MESSAGES_TX: RefCell<Option<mpsc::Sender<Message>>> = const { RefCell::new(None) };
+    static MESSAGES_TX: RefCell<Option<crossbeam_channel::Sender<Message>>> = const { RefCell::new(None) };
 }
 
 impl MainThreadState {
@@ -140,7 +143,7 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
                 let ios_touch: ObjcId = msg_send![enumerator, nextObject];
                 let mut ios_pos: NSPoint = msg_send![ios_touch, locationInView: this];
 
-                if native_display().lock().unwrap().high_dpi {
+                if native_display().read().high_dpi {
                     ios_pos.x *= 2.;
                     ios_pos.y *= 2.;
                 } else {
@@ -180,12 +183,12 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
             payload.init_event_handler();
         }
         let msg = {
-            let state = payload.state.lock().unwrap();
+            let state = payload.state.read();
             state.cur_msg
         };
         match msg {
             Message::Pause => {
-                let mut state = payload.state.lock().unwrap();
+                let mut state = payload.state.write();
                 state.paused = true;
 
                 if let Some(ref mut event_handler) = payload.event_handler {
@@ -193,7 +196,7 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
                 }
             }
             Message::Resume => {
-                let mut state = payload.state.lock().unwrap();
+                let mut state = payload.state.write();
                 state.paused = false;
 
                 if let Some(ref mut event_handler) = payload.event_handler {
@@ -201,7 +204,7 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
                 }
             }
             Message::Destroy => {
-                let mut state = payload.state.lock().unwrap();
+                let mut state = payload.state.write();
                 state.quit = true;
             }
             Message::Touch {
@@ -222,7 +225,7 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
                 }
             }
             Message::KeyDown { keycode } => {
-                let mut state = payload.state.lock().unwrap();
+                let mut state = payload.state.write();
                 match keycode {
                     KeyCode::LeftShift | KeyCode::RightShift => state.keymods.shift = true,
                     KeyCode::LeftControl | KeyCode::RightControl => state.keymods.ctrl = true,
@@ -235,7 +238,7 @@ pub fn define_glk_or_mtk_view(superclass: &Class) -> *const Class {
                 }
             }
             Message::KeyUp { keycode } => {
-                let mut state = payload.state.lock().unwrap();
+                let mut state = payload.state.write();
                 match keycode {
                     KeyCode::LeftShift | KeyCode::RightShift => state.keymods.shift = false,
                     KeyCode::LeftControl | KeyCode::RightControl => state.keymods.ctrl = false,
@@ -322,7 +325,7 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
 
         let main_screen: ObjcId = unsafe { msg_send![class!(UIScreen), mainScreen] };
         let screen_rect: NSRect = unsafe { msg_send![main_screen, bounds] };
-        let high_dpi = native_display().lock().unwrap().high_dpi;
+        let high_dpi = native_display().read().high_dpi;
 
         let (screen_width, screen_height) = if high_dpi {
             (
@@ -337,11 +340,11 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
             )
         };
 
-        if native_display().lock().unwrap().screen_width != screen_width
-            || native_display().lock().unwrap().screen_height != screen_height
+        if native_display().read().screen_width != screen_width
+            || native_display().read().screen_height != screen_height
         {
             {
-                let mut d = native_display().lock().unwrap();
+                let mut d = native_display().write();
                 d.screen_width = screen_width;
                 d.screen_height = screen_height;
             }
@@ -354,7 +357,7 @@ pub fn define_glk_or_mtk_view_dlg(superclass: &Class) -> *const Class {
         if let Some(ref mut event_handler) = payload.event_handler {
             event_handler.update();
             event_handler.draw();
-            let mut s = payload.state.lock().unwrap();
+            let mut s = payload.state.write();
             s.update_requested = false;
         }
     }
@@ -544,12 +547,12 @@ pub fn define_app_delegate() -> *const Class {
                 (textfield_dlg, textfield)
             };
 
-            let (tx, rx) = std::sync::mpsc::channel();
+            let (tx, rx) = crossbeam_channel::unbounded();
 
             MESSAGES_TX.with(move |messages_tx| *messages_tx.borrow_mut() = Some(tx));
 
             let clipboard = Box::new(IosClipboard);
-            let (tx, requests_rx) = std::sync::mpsc::channel();
+            let (tx, requests_rx) = crossbeam_channel::unbounded();
             crate::set_display(NativeDisplayData {
                 high_dpi: conf.high_dpi,
                 gfx_api: conf.platform.apple_gfx_api,
@@ -558,7 +561,7 @@ pub fn define_app_delegate() -> *const Class {
                 ..NativeDisplayData::new(conf.window_width, conf.window_height, tx, clipboard)
             });
 
-            let state_original = Arc::new(Mutex::new(MainThreadState {
+            let state_original = Arc::new(RwLock::new(MainThreadState {
                 quit: false,
                 paused: true,
                 update_requested: true,
@@ -605,11 +608,11 @@ pub fn define_app_delegate() -> *const Class {
 
                 loop {
                     while let Ok(request) = requests_rx.try_recv() {
-                        s.lock().unwrap().process_request(request);
+                        s.read().process_request(request);
                     }
 
                     let block_on_wait = {
-                        let s = s.lock().unwrap();
+                        let s = s.read();
                         (conf.platform.blocking_event_loop && !s.update_requested) || s.paused
                     };
 
@@ -619,7 +622,7 @@ pub fn define_app_delegate() -> *const Class {
                         if let Ok(msg) = res {
                             let view;
                             {
-                                let mut s = s.lock().unwrap();
+                                let mut s = s.write();
                                 view = s.view;
                                 s.cur_msg = msg;
                             }
@@ -630,7 +633,7 @@ pub fn define_app_delegate() -> *const Class {
                         while let Ok(msg) = rx.try_recv() {
                             let view;
                             {
-                                let mut s = s.lock().unwrap();
+                                let mut s = s.write();
                                 view = s.view;
                                 s.cur_msg = msg;
                             }
@@ -641,7 +644,7 @@ pub fn define_app_delegate() -> *const Class {
                     let update_requested;
                     let view;
                     {
-                        let s = s.lock().unwrap();
+                        let s = s.read();
                         update_requested = s.update_requested;
                         view = s.view;
                     }

@@ -178,7 +178,7 @@ impl WindowsDisplay {
                 );
             } else {
                 let (w, h) = {
-                    let d = crate::native_display().lock().unwrap();
+                    let d = crate::native_display().read();
                     (d.screen_width, d.screen_height)
                 };
 
@@ -282,12 +282,13 @@ unsafe extern "system" fn win32_wndproc(
     if display_ptr == 0 {
         return DefWindowProcW(hwnd, umsg, wparam, lparam);
     }
+
     let payload = &mut *(display_ptr as *mut WindowsDisplay);
-    let event_handler = payload.event_handler.as_mut().unwrap();
+    let event_handler = payload.event_handler.as_mut().unwrap_unchecked();
 
     match umsg {
         WM_CLOSE => {
-            let mut d = crate::native_display().lock().unwrap();
+            let mut d = crate::native_display().write();
             // only give user a chance to intervene when sapp_quit() wasn't already called
             if !d.quit_ordered {
                 // if window should be closed and event handling is enabled, give user code
@@ -297,7 +298,7 @@ unsafe extern "system" fn win32_wndproc(
                 // the prevent event may require access to native_display
                 event_handler.quit_requested_event();
                 // Re-acquire native_display
-                d = crate::native_display().lock().unwrap();
+                d = crate::native_display().write();
                 // if user code hasn't intervened, quit the app
                 if d.quit_requested {
                     d.quit_ordered = true;
@@ -420,7 +421,7 @@ unsafe extern "system" fn win32_wndproc(
         }
 
         WM_INPUT => {
-            let mut data: RAWINPUT = std::mem::zeroed();
+            /*            let mut data: RAWINPUT = std::mem::zeroed();
             let mut size = std::mem::size_of::<RAWINPUT>();
             let get_succeed = GetRawInputData(
                 lparam as _,
@@ -448,7 +449,7 @@ unsafe extern "system" fn win32_wndproc(
                 dy = dy / 65535.0 * height;
             }
 
-            event_handler.raw_mouse_motion(dx, dy);
+            event_handler.raw_mouse_motion(dx, dy);*/
         }
 
         WM_MOUSELEAVE => {
@@ -505,7 +506,7 @@ unsafe extern "system" fn win32_wndproc(
                 SwapBuffers(payload.dc);
 
                 if payload.update_dimensions(hwnd) {
-                    let d = crate::native_display().lock().unwrap();
+                    let d = crate::native_display().read();
                     let width = d.screen_width as f32;
                     let height = d.screen_height as f32;
                     drop(d);
@@ -519,27 +520,6 @@ unsafe extern "system" fn win32_wndproc(
         }
         WM_EXITSIZEMOVE | WM_EXITMENULOOP => {
             KillTimer(hwnd, &mut payload.modal_resizing_timer as *mut _ as usize);
-        }
-        WM_DROPFILES => {
-            let hdrop = wparam as HDROP;
-            let mut path = core::mem::MaybeUninit::<[u16; MAX_PATH]>::uninit();
-            let num_drops = DragQueryFileW(hdrop, u32::MAX, std::ptr::null_mut(), 0);
-
-            let mut d = crate::native_display().lock().unwrap();
-            for i in 0..num_drops {
-                let path_ptr = path.as_mut_ptr() as *mut u16;
-                let path_len = DragQueryFileW(hdrop, i, path_ptr, MAX_PATH as u32) as usize;
-                if path_len > 0 {
-                    // SAFETY: `DragQueryFileW` initializes `path_ptr` up to `path_len`
-                    // elements before use, and we only access the initialized portion.
-                    let path = unsafe {
-                        let path = path.assume_init();
-                        PathBuf::from(OsString::from_wide(&path[0..path_len]))
-                    };
-                    d.dropped_files.bytes.push(std::fs::read(&path).unwrap());
-                    d.dropped_files.paths.push(path);
-                }
-            }
         }
         WM_ACTIVATE => {
             if LOWORD(wparam as _) == WA_ACTIVE || LOWORD(wparam as _) == WA_CLICKACTIVE {
@@ -794,7 +774,7 @@ impl WindowsDisplay {
     /// and window position from the window's rect.
     /// returns true if size or position has changed
     unsafe fn update_dimensions(&mut self, hwnd: HWND) -> bool {
-        let mut d = crate::native_display().lock().unwrap();
+        let mut d = crate::native_display().write();
         let mut rect: RECT = std::mem::zeroed();
 
         // Get the outer rectangle of the window in screen coordinates
@@ -933,7 +913,7 @@ where
         };
         display.init_dpi(conf.high_dpi);
 
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = crossbeam_channel::unbounded();
         let clipboard = Box::new(clipboard::WindowsClipboard::new());
         crate::set_display(NativeDisplayData {
             high_dpi: conf.high_dpi,
@@ -961,40 +941,45 @@ where
         SetWindowLong(wnd, GWLP_USERDATA, &mut display as *mut _ as isize);
 
         let mut done = false;
-        while !(done || crate::native_display().lock().unwrap().quit_ordered) {
+        while !(done || crate::native_display().read().quit_ordered) {
             while let Ok(request) = rx.try_recv() {
                 display.process_request(request);
             }
 
-            let mut dispatch_message = |mut msg: MSG| {
-                if msg.message == WM_QUIT {
-                    done = true;
-                } else {
+            unsafe fn dispatch_message(mut msg: MSG) {
+                if msg.message != WM_QUIT {
                     TranslateMessage(&mut msg as *mut _ as _);
                     DispatchMessageW(&mut msg as *mut _ as _);
                 }
             };
+
             let mut msg: MSG = std::mem::zeroed();
             let block_on_wait = conf.platform.blocking_event_loop && !display.update_requested;
             if block_on_wait {
                 GetMessageW(&mut msg as *mut _ as _, NULL as _, 0, 0);
+                if msg.message == WM_QUIT {
+                    done = true;
+                }
                 dispatch_message(msg);
             } else {
                 while PeekMessageW(&mut msg as *mut _ as _, NULL as _, 0, 0, PM_REMOVE) != 0 {
+                    if msg.message == WM_QUIT {
+                        done = true;
+                    }
                     dispatch_message(msg);
                 }
             }
 
             if !conf.platform.blocking_event_loop || display.update_requested {
                 display.update_requested = false;
-                display.event_handler.as_mut().unwrap().update();
-                display.event_handler.as_mut().unwrap().draw();
+                display.event_handler.as_mut().unwrap_unchecked().update();
+                display.event_handler.as_mut().unwrap_unchecked().draw();
 
                 SwapBuffers(display.dc);
             }
 
             if display.update_dimensions(wnd) {
-                let d = crate::native_display().lock().unwrap();
+                let d = crate::native_display().read();
                 let width = d.screen_width as f32;
                 let height = d.screen_height as f32;
                 drop(d);
@@ -1004,7 +989,7 @@ where
                     .unwrap()
                     .resize_event(width, height);
             }
-            if crate::native_display().lock().unwrap().quit_requested {
+            if crate::native_display().read().quit_requested {
                 PostMessageW(display.wnd, WM_CLOSE, 0, 0);
             }
         }

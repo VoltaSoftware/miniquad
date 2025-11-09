@@ -109,7 +109,7 @@ impl Decorations {
 
     unsafe fn fallback(display: &mut WaylandPayload) -> Self {
         create_xdg_toplevel(display);
-        let d = crate::native_display().lock().unwrap();
+        let d = crate::native_display().read();
         let dpi_scale = d.dpi_scale as i32;
         let decorations = fallback::Decorations::new(
             display,
@@ -192,7 +192,7 @@ unsafe extern "C" fn handle_configure(data: *mut std::ffi::c_void, width: i32, h
     let payload: &mut WaylandPayload = &mut *(data as *mut _);
 
     if width != 0 && height != 0 {
-        let mut d = crate::native_display().lock().unwrap();
+        let mut d = crate::native_display().write();
         // Currently non-integer scales are not supported
         let dpi_scale = d.dpi_scale as i32;
         let screen_width = width * dpi_scale;
@@ -264,7 +264,7 @@ unsafe extern "C" fn libdecor_frame_handle_configure(
         &mut height,
     ) == 0
     {
-        let d = crate::native_display().lock().unwrap();
+        let d = crate::native_display().read();
         let dpi_scale = d.dpi_scale as i32;
         width = d.screen_width / dpi_scale;
         height = d.screen_height / dpi_scale;
@@ -280,11 +280,11 @@ unsafe extern "C" fn xdg_toplevel_handle_close(
     _data: *mut std::ffi::c_void,
     _xdg_toplevel: *mut extensions::xdg_shell::xdg_toplevel,
 ) {
-    crate::native_display().try_lock().unwrap().quit_requested = true;
+    crate::native_display().write().quit_requested = true;
 }
 
 unsafe extern "C" fn libdecor_frame_handle_close(_frame: *mut libdecor_frame, _data: *mut c_void) {
-    crate::native_display().try_lock().unwrap().quit_requested = true;
+    crate::native_display().write().quit_requested = true;
 }
 
 unsafe extern "C" fn libdecor_frame_handle_commit(_frame: *mut libdecor_frame, _data: *mut c_void) {

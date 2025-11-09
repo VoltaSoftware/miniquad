@@ -160,7 +160,6 @@ impl WaylandPayload {
         DATA_DEVICE_LISTENER.data_offer = data_device_handle_data_offer;
         DATA_DEVICE_LISTENER.enter = drag_n_drop::data_device_handle_enter;
         DATA_DEVICE_LISTENER.leave = drag_n_drop::data_device_handle_leave;
-        DATA_DEVICE_LISTENER.drop = drag_n_drop::data_device_handle_drop;
         DATA_DEVICE_LISTENER.selection = clipboard::data_device_handle_selection;
         (self.client.wl_proxy_add_listener)(
             self.data_device as _,
@@ -538,7 +537,6 @@ enum WaylandEvent {
     PointerButton(MouseButton, bool),
     PointerAxis(f32, f32),
     Touch(crate::TouchPhase, u64, f32, f32),
-    FilesDropped(String),
     Resize(f32, f32),
     WindowMinimized,
     WindowRestored,
@@ -715,7 +713,7 @@ unsafe extern "C" fn pointer_handle_motion(
     let display: &mut WaylandPayload = &mut *(data as *mut _);
     if display.focused_window == display.surface {
         // From wl_fixed_to_double(), it simply divides by 256
-        let d = crate::native_display().lock().unwrap();
+        let d = crate::native_display().read();
         let x = wl_fixed_to_double(surface_x) * d.dpi_scale;
         let y = wl_fixed_to_double(surface_y) * d.dpi_scale;
         display.pointer_context.position = (x, y);
@@ -789,7 +787,7 @@ unsafe extern "C" fn output_handle_scale(
     _output: *mut wl_output,
     factor: core::ffi::c_int,
 ) {
-    let mut d = crate::native_display().try_lock().unwrap();
+    let mut d = crate::native_display().write();
     if d.high_dpi {
         let dpi_scale = d.dpi_scale as i32;
         d.screen_width = d.screen_width / dpi_scale * factor;
@@ -811,7 +809,7 @@ unsafe extern "C" fn touch_handle_down(
     let display: &mut WaylandPayload = &mut *(data as *mut _);
     display.focused_window = surface;
     if display.focused_window == display.surface {
-        let d = crate::native_display().lock().unwrap();
+        let d = crate::native_display().read();
         let x = wl_fixed_to_double(x) * d.dpi_scale;
         let y = wl_fixed_to_double(y) * d.dpi_scale;
         display.touch_positions.insert(id, (x, y));
@@ -834,7 +832,7 @@ unsafe extern "C" fn touch_handle_motion(
 ) {
     let display: &mut WaylandPayload = &mut *(data as *mut _);
     if display.focused_window == display.surface {
-        let d = crate::native_display().lock().unwrap();
+        let d = crate::native_display().read();
         let x = wl_fixed_to_double(x) * d.dpi_scale;
         let y = wl_fixed_to_double(y) * d.dpi_scale;
         display.touch_positions.insert(id, (x, y));
@@ -1113,7 +1111,7 @@ where
             &mut display as *mut _ as _,
         );
 
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = crossbeam_channel::unbounded();
         let clipboard = Box::new(clipboard::WaylandClipboard::new(&mut display as *mut _));
         crate::set_display(NativeDisplayData {
             high_dpi: conf.high_dpi,
@@ -1139,7 +1137,7 @@ where
 
         {
             // At this point we have been told the dpi_scale
-            let d = crate::native_display().try_lock().unwrap();
+            let d = crate::native_display().read();
             display.egl_window = (display.egl.wl_egl_window_create)(
                 display.surface as _,
                 d.screen_width,
@@ -1205,7 +1203,7 @@ where
 
         let mut event_handler = (f.take().unwrap())();
 
-        while !crate::native_display().try_lock().unwrap().quit_ordered {
+        while !crate::native_display().read().quit_ordered {
             while let Ok(request) = rx.try_recv() {
                 match request {
                     Request::SetFullscreen(full) => {
@@ -1275,29 +1273,15 @@ where
                     WaylandEvent::WindowRestored => {
                         event_handler.window_restored_event();
                     }
-                    WaylandEvent::FilesDropped(filenames) => {
-                        let mut d = crate::native_display().try_lock().unwrap();
-                        d.dropped_files = Default::default();
-                        for filename in filenames.lines() {
-                            let path = std::path::PathBuf::from(filename);
-                            if let Ok(bytes) = std::fs::read(&path) {
-                                d.dropped_files.paths.push(path);
-                                d.dropped_files.bytes.push(bytes);
-                            }
-                        }
-                        // drop d since files_dropped_event is likely to need access to it
-                        drop(d);
-                        event_handler.files_dropped_event();
-                    }
                 }
             }
 
             {
-                let d = crate::native_display().try_lock().unwrap();
+                let d = crate::native_display().read();
                 if d.quit_requested && !d.quit_ordered {
                     drop(d);
                     event_handler.quit_requested_event();
-                    let mut d = crate::native_display().try_lock().unwrap();
+                    let mut d = crate::native_display().write();
                     if d.quit_requested {
                         d.quit_ordered = true
                     }

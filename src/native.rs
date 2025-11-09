@@ -1,12 +1,5 @@
 #![allow(dead_code)]
 
-use std::sync::mpsc;
-
-#[derive(Default)]
-pub(crate) struct DroppedFiles {
-    pub paths: Vec<std::path::PathBuf>,
-    pub bytes: Vec<Vec<u8>>,
-}
 pub(crate) struct NativeDisplayData {
     pub screen_width: i32,
     pub screen_height: i32,
@@ -15,9 +8,8 @@ pub(crate) struct NativeDisplayData {
     pub high_dpi: bool,
     pub quit_requested: bool,
     pub quit_ordered: bool,
-    pub native_requests: mpsc::Sender<Request>,
+    pub native_requests: crossbeam_channel::Sender<Request>,
     pub clipboard: Box<dyn Clipboard>,
-    pub dropped_files: DroppedFiles,
     pub blocking_event_loop: bool,
 
     #[cfg(target_vendor = "apple")]
@@ -36,7 +28,7 @@ impl NativeDisplayData {
     pub fn new(
         screen_width: i32,
         screen_height: i32,
-        native_requests: mpsc::Sender<Request>,
+        native_requests: crossbeam_channel::Sender<Request>,
         clipboard: Box<dyn Clipboard>,
     ) -> NativeDisplayData {
         NativeDisplayData {
@@ -49,7 +41,6 @@ impl NativeDisplayData {
             quit_ordered: false,
             native_requests,
             clipboard,
-            dropped_files: Default::default(),
             blocking_event_loop: false,
             #[cfg(target_vendor = "apple")]
             gfx_api: crate::conf::AppleGfxApi::OpenGl,

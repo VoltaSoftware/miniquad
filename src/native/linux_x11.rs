@@ -137,7 +137,7 @@ impl X11Display {
                 event_handler.window_minimized_event();
             }
             22 => {
-                let mut d = crate::native_display().try_lock().unwrap();
+                let mut d = crate::native_display().write();
                 let left = event.xconfigure.x;
                 let top = event.xconfigure.y;
                 d.screen_position = (left as _, top as _);
@@ -155,7 +155,7 @@ impl X11Display {
             // ClientMessage
             33 => match event.xclient.message_type {
                 t if t == self.libx11.extensions.wm_protocols => {
-                    let mut d = crate::native_display().try_lock().unwrap();
+                    let mut d = crate::native_display().write();
                     let protocol = event.xclient.data.l[0 as libc::c_int as usize] as Atom;
                     if protocol == self.libx11.extensions.wm_delete_window {
                         d.quit_requested = true;
@@ -189,7 +189,7 @@ impl X11Display {
                 _ => (),
             },
             // SelectionNotify
-            31 => match event.xselection.property {
+            /*            31 => match event.xselection.property {
                 p if p == self.libx11.extensions.xdnd_selection => {
                     let bytes = clipboard::get_property_bytes(
                         &mut self.libx11,
@@ -198,7 +198,7 @@ impl X11Display {
                         p,
                     );
                     if let Ok(filenames) = std::str::from_utf8(&bytes) {
-                        let mut d = crate::native_display().try_lock().unwrap();
+                        let mut d = crate::native_display().write();
                         d.dropped_files = Default::default();
                         for filename in filenames.lines() {
                             let path = std::path::PathBuf::from(filename);
@@ -213,7 +213,7 @@ impl X11Display {
                     }
                 }
                 _ => (),
-            },
+            },*/
             // SelectionRequest
             30 => {
                 // // some other app is waiting for clibpoard content
@@ -235,11 +235,11 @@ impl X11Display {
             _ => {}
         };
 
-        let d = crate::native_display().try_lock().unwrap();
+        let d = crate::native_display().read();
         if d.quit_requested && !d.quit_ordered {
             drop(d);
             event_handler.quit_requested_event();
-            let mut d = crate::native_display().try_lock().unwrap();
+            let mut d = crate::native_display().write();
             if d.quit_requested {
                 d.quit_ordered = true
             }
@@ -463,7 +463,7 @@ where
         .libx11
         .query_window_size(display.display, display.window);
 
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = crossbeam_channel::unbounded();
     let clipboard = Box::new(clipboard::X11Clipboard::new(
         display.libx11.clone(),
         display.display,
@@ -481,7 +481,7 @@ where
 
     let mut event_handler = (f.take().unwrap())();
 
-    while !crate::native_display().try_lock().unwrap().quit_ordered {
+    while !crate::native_display().read().quit_ordered {
         while let Ok(request) = rx.try_recv() {
             display.process_request(request);
         }
@@ -573,7 +573,7 @@ where
         .libx11
         .query_window_size(display.display, display.window);
 
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, rx) = crossbeam_channel::unbounded();
     let clipboard = Box::new(clipboard::X11Clipboard::new(
         display.libx11.clone(),
         display.display,
@@ -593,7 +593,7 @@ where
 
     let mut event_handler = (f.take().unwrap())();
 
-    while !crate::native_display().try_lock().unwrap().quit_ordered {
+    while !crate::native_display().read().quit_ordered {
         while let Ok(request) = rx.try_recv() {
             display.process_request(request);
         }

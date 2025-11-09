@@ -7,7 +7,7 @@ use crate::{
     },
 };
 
-use std::{cell::RefCell, sync::mpsc, thread};
+use std::{cell::RefCell, thread};
 
 pub use crate::native::gl::{self, *};
 
@@ -78,7 +78,7 @@ enum Message {
 unsafe impl Send for Message {}
 
 thread_local! {
-    static MESSAGES_TX: RefCell<Option<mpsc::Sender<Message>>> = RefCell::new(None);
+    static MESSAGES_TX: RefCell<Option<crossbeam_channel::Sender<Message>>> = RefCell::new(None);
 }
 
 fn send_message(message: Message) {
@@ -212,7 +212,7 @@ impl MainThreadState {
                 height,
             } => {
                 {
-                    let mut d = crate::native_display().lock().unwrap();
+                    let mut d = crate::native_display().write();
                     d.screen_width = width as _;
                     d.screen_height = height as _;
                 }
@@ -435,7 +435,7 @@ where
 
     let f = SendHack(f);
 
-    let (tx, rx) = mpsc::channel();
+    let (tx, rx) = crossbeam_channel::unbounded();
 
     MESSAGES_TX.with(move |messages_tx| *messages_tx.borrow_mut() = Some(tx));
 
@@ -486,7 +486,7 @@ where
             panic!("Failed to make EGL context current");
         }
 
-        let (tx, requests_rx) = std::sync::mpsc::channel();
+        let (tx, requests_rx) = crossbeam_channel::unbounded();
         let clipboard = Box::new(AndroidClipboard::new());
         crate::set_or_replace_display(NativeDisplayData {
             high_dpi: conf.high_dpi,
