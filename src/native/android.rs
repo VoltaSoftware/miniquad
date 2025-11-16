@@ -566,6 +566,8 @@ unsafe fn create_native_window(surface: ndk_sys::jobject) -> *mut ndk_sys::ANati
     ndk_sys::ANativeWindow_fromSurface(env, surface)
 }
 
+//static recreate_test_flag: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[no_mangle]
 pub unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnCreate(
     _: *mut ndk_sys::JNIEnv,
@@ -575,6 +577,10 @@ pub unsafe extern "C" fn Java_quad_1native_QuadNative_activityOnCreate(
     let env = attach_jni_env();
     ACTIVITY = (**env).NewGlobalRef.unwrap()(env, activity);
     quad_main();
+
+    /*    if recreate_test_flag.swap(true, std::sync::atomic::Ordering::SeqCst) == false {
+        ndk_utils::call_void_method!(env, ACTIVITY, "recreate", "()V");
+    }*/
 }
 
 #[no_mangle]
