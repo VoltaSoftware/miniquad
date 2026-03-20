@@ -95,8 +95,8 @@ pub enum AppleGfxApi {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum WebGLVersion {
     /// Use WebGL 1.0. This is the default choice.
-    #[default]
     WebGL1,
+    #[default]
     /// Use WebGL 2.0.
     WebGL2,
 }
